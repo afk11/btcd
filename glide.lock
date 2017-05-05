@@ -1,5 +1,5 @@
-hash: 9b8ff781a12daad991983e9a421a320e905eecc4e9ff0b0643e790f472bc78c8
-updated: 2016-08-08T12:54:38.3626881-05:00
+hash: ef2c0fb761204f8ccc8d2517d0c4c2ec3d9ff309e8b759990b355d23b73bc25f
+updated: 2017-05-03T16:08:37.635698618+02:00
 imports:
 - name: github.com/btcsuite/btclog
   version: f96df2375f37300305f329b8e5258764b4f19a7f
@@ -54,4 +54,10 @@ imports:
   version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
   subpackages:
   - spew
-testImports: []
+- name: gopkg.in/yaml.v2
+  version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
+testImports:
+- name: github.com/stretchr/testify
+  version: 69483b4bd14f5845b5a1e55bca19e954e827f1d0
+  subpackages:
+  - assert
