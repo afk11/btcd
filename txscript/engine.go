@@ -779,7 +779,7 @@ func (vm *Engine) SetAltStack(data [][]byte) {
 }
 
 // GetSignOpCache returns the SignOpCache (or nil)
-func (vm *Engine) GetSignOpCache(opCache *SignOpCache) *SignOpCache {
+func (vm *Engine) GetSignOpCache() *SignOpCache {
 	return vm.signOpCache
 }
 

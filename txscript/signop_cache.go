@@ -3,6 +3,7 @@ package txscript
 import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"fmt"
 )
 
 // SigHashCache persists a map of SigHashType's to SigHash's
@@ -63,6 +64,21 @@ func (op *SignOp) IsCheckMultiSig() bool {
 	return op.op == OP_CHECKMULTISIG || op.op == OP_CHECKMULTISIGVERIFY
 }
 
+func (op *SignOp) GetKeys() []*btcec.PublicKey {
+	return op.pubkeys
+}
+
+func (op *SignOp) GetSigHash(hashType SigHashType) []*btcec.PublicKey {
+	if op.sigHashes.Contains(hashType) {
+		return op.sigHashes.Find(hashType)
+	}
+	return nil
+}
+
+//func (op *SignOp) GetSignatures() map[*btcec.PublicKey] {
+//
+//}
+
 // SignOpCache represents a sequence of signing operations executed
 // during script evaluation
 type SignOpCache struct {
@@ -88,6 +104,16 @@ func (opCache *SignOpCache) CheckSig(isVerify bool, cache *SigHashCache, keys []
 // CheckMultiSig records a CheckSig operation into the cache(specifying whether it was *VERIFY)
 func (opCache *SignOpCache) CheckMultiSig(isVerify bool, cache *SigHashCache, requiredSigs int, keys []*btcec.PublicKey) {
 	opCache.ops = append(opCache.ops, newSignOp(OP_CHECKMULTISIG, isVerify, requiredSigs, cache, keys))
+}
+
+// GetOp returns the SignOp at the specified idx, or an error
+// if it did not exist.
+func (opCache *SignOpCache) GetOp(idx int) (*SignOp, error) {
+	if idx < 0 || idx > len(opCache.ops) {
+		return nil, fmt.Errorf("No operation at %d", idx)
+	}
+
+	return opCache.ops[idx]
 }
 
 // NewSignOpCache returns an initialized SignOpCache.
