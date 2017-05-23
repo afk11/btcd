@@ -2180,6 +2180,17 @@ func opcodeCheckSig(op *parsedOpcode, vm *Engine) error {
 		valid = signature.Verify(hash, pubKey)
 	}
 
+	if vm.signOpCache != nil {
+		// todo: duplicated code, (see branch above)
+		var sigHash chainhash.Hash
+		copy(sigHash[:], hash)
+
+		sigHashCache := NewSigHashCache()
+		sigHashCache.Add(hashType, &sigHash)
+
+		vm.signOpCache.CheckSig(int(op.opcode.value) == OP_CHECKSIGVERIFY, sigHashCache, []*btcec.PublicKey{pubKey})
+	}
+
 	if !valid && vm.hasFlag(ScriptVerifyNullFail) && len(sigBytes) > 0 {
 		str := "signature not empty on failed checksig"
 		return scriptError(ErrNullFail, str)
@@ -2326,6 +2337,8 @@ func opcodeCheckMultiSig(op *parsedOpcode, vm *Engine) error {
 	numPubKeys++
 	pubKeyIdx := -1
 	signatureIdx := 0
+	sigHashCache := NewSigHashCache()
+	ecPubKeys := make([]*btcec.PublicKey, numPubKeys)
 	for numSignatures > 0 {
 		// When there are more signatures than public keys remaining,
 		// there is no way to succeed since too many signatures are
@@ -2400,20 +2413,31 @@ func opcodeCheckMultiSig(op *parsedOpcode, vm *Engine) error {
 			continue
 		}
 
+		ecPubKeys[pubKeyIdx] = parsedPubKey
+
 		// Generate the signature hash based on the signature hash type.
 		var hash []byte
-		if vm.witness {
-			var sigHashes *TxSigHashes
-			if vm.hashCache != nil {
-				sigHashes = vm.hashCache
+		if sigHashCache.Contains(hashType) {
+			hash = sigHashCache.Find(hashType).CloneBytes()
+		} else {
+			if vm.witness {
+				var sigHashes *TxSigHashes
+				if vm.hashCache != nil {
+					sigHashes = vm.hashCache
+				} else {
+					sigHashes = NewTxSigHashes(&vm.tx)
+				}
+
+				hash = calcWitnessSignatureHash(script, sigHashes, hashType,
+					&vm.tx, vm.txIdx, vm.inputAmount)
 			} else {
-				sigHashes = NewTxSigHashes(&vm.tx)
+				hash = calcSignatureHash(script, hashType, &vm.tx, vm.txIdx)
 			}
 
-			hash = calcWitnessSignatureHash(script, sigHashes, hashType,
-				&vm.tx, vm.txIdx, vm.inputAmount)
-		} else {
-			hash = calcSignatureHash(script, hashType, &vm.tx, vm.txIdx)
+			var sigHash chainhash.Hash
+			copy(sigHash[:], hash)
+
+			sigHashCache.Add(hashType, &sigHash)
 		}
 
 		var valid bool
@@ -2435,6 +2459,10 @@ func opcodeCheckMultiSig(op *parsedOpcode, vm *Engine) error {
 			signatureIdx++
 			numSignatures--
 		}
+	}
+
+	if vm.signOpCache != nil {
+		vm.signOpCache.CheckMultiSig(int(op.opcode.value) == OP_CHECKMULTISIGVERIFY, sigHashCache, numSignatures, ecPubKeys)
 	}
 
 	if !success && vm.hasFlag(ScriptVerifyNullFail) {

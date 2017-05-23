@@ -129,6 +129,7 @@ type Engine struct {
 	numOps          int
 	flags           ScriptFlags
 	sigCache        *SigCache
+	signOpCache     *SignOpCache
 	hashCache       *TxSigHashes
 	bip16           bool     // treat execution as pay-to-script-hash
 	savedFirstStack [][]byte // stack from first script for bip16 scripts
@@ -775,6 +776,16 @@ func (vm *Engine) GetAltStack() [][]byte {
 // provided array where the last item in the array will be the top of the stack.
 func (vm *Engine) SetAltStack(data [][]byte) {
 	setStack(&vm.astack, data)
+}
+
+// GetSignOpCache returns the SignOpCache (or nil)
+func (vm *Engine) GetSignOpCache(opCache *SignOpCache) *SignOpCache {
+	return vm.signOpCache
+}
+
+// SetSignOpCache will overwrite the current SignOpCache
+func (vm *Engine) SetSignOpCache(opCache *SignOpCache) {
+	vm.signOpCache = opCache
 }
 
 // NewEngine returns a new script engine for the provided public key script,
