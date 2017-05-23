@@ -69,6 +69,7 @@ var helpDescsEnUS = map[string]string{
 	"vinprevout-txid":      "The hash of the origin transaction (non-coinbase txns only)",
 	"vinprevout-vout":      "The index of the output being redeemed from the origin transaction (non-coinbase txns only)",
 	"vinprevout-scriptSig": "The signature script used to redeem the origin transaction as a JSON object (non-coinbase txns only)",
+	"vinprevout-txinwitness":   "The witness data that redeems the origin transaction as a JSON object (non-coinbase txns only)",
 	"vinprevout-prevOut":   "Data from the origin transaction output with index vout.",
 	"vinprevout-sequence":  "The script sequence number",
 
@@ -78,6 +79,7 @@ var helpDescsEnUS = map[string]string{
 	"vin-vout":      "The index of the output being redeemed from the origin transaction (non-coinbase txns only)",
 	"vin-scriptSig": "The signature script used to redeem the origin transaction as a JSON object (non-coinbase txns only)",
 	"vin-sequence":  "The script sequence number",
+	"vin-txinwitness":  "The witness data that redeems the origin transaction (non-coinbase txns only)",
 
 	// ScriptPubKeyResult help.
 	"scriptpubkeyresult-asm":       "Disassembly of the script",
@@ -186,6 +188,9 @@ var helpDescsEnUS = map[string]string{
 	// TxRawResult help.
 	"txrawresult-hex":           "Hex-encoded transaction",
 	"txrawresult-txid":          "The hash of the transaction",
+	"txrawresult-hash":          "The witness hash of the transaction",
+	"txrawresult-vsize":         "The virtual size of the transaction",
+	"txrawresult-size":          "The size of the transaction",
 	"txrawresult-version":       "The transaction version",
 	"txrawresult-locktime":      "The transaction lock time",
 	"txrawresult-vin":           "The transaction inputs as JSON objects",
@@ -198,6 +203,9 @@ var helpDescsEnUS = map[string]string{
 	// SearchRawTransactionsResult help.
 	"searchrawtransactionsresult-hex":           "Hex-encoded transaction",
 	"searchrawtransactionsresult-txid":          "The hash of the transaction",
+	"searchrawtransactionsresult-hash":          "The witness hash of the transaction",
+	"searchrawtransactionsresult-size":          "The raw transactions size",
+	"searchrawtransactionsresult-vsize":         "The raw transactions virtual size",
 	"searchrawtransactionsresult-version":       "The transaction version",
 	"searchrawtransactionsresult-locktime":      "The transaction lock time",
 	"searchrawtransactionsresult-vin":           "The transaction inputs as JSON objects",
@@ -211,6 +219,8 @@ var helpDescsEnUS = map[string]string{
 	"getblockverboseresult-hash":              "The hash of the block (same as provided)",
 	"getblockverboseresult-confirmations":     "The number of confirmations",
 	"getblockverboseresult-size":              "The size of the block",
+	"getblockverboseresult-strippedsize":      "The stripped size of the block",
+	"getblockverboseresult-weight":            "The weight of the block",
 	"getblockverboseresult-height":            "The height of the block in the block chain",
 	"getblockverboseresult-version":           "The block version",
 	"getblockverboseresult-versionHex":        "The block version in hexidecimal",
@@ -271,7 +281,10 @@ var helpDescsEnUS = map[string]string{
 	"getblocktemplateresulttx-hash":    "Hex-encoded transaction hash (little endian if treated as a 256-bit number)",
 	"getblocktemplateresulttx-depends": "Other transactions before this one (by 1-based index in the 'transactions'  list) that must be present in the final block if this one is",
 	"getblocktemplateresulttx-fee":     "Difference in value between transaction inputs and outputs (in Satoshi)",
+	"getblocktemplateresulttx-default_witness_commitment": "Default witness commitment to use.",
 	"getblocktemplateresulttx-sigops":  "Total number of signature operations as counted for purposes of block limits",
+	"getblocktemplateresulttx-weight":  "The weight of the transactions",
+	"getblocktemplateresulttx-weightlimit":  "The weight limit of the transactions",
 
 	// GetBlockTemplateResultAux help.
 	"getblocktemplateresultaux-flags": "Hex-encoded byte-for-byte data to include in the coinbase signature script",
@@ -285,6 +298,8 @@ var helpDescsEnUS = map[string]string{
 	"getblocktemplateresult-sizelimit":         "Number of bytes allowed in blocks",
 	"getblocktemplateresult-transactions":      "Array of transactions as JSON objects",
 	"getblocktemplateresult-version":           "The block version",
+	"getblocktemplateresult-weightlimit":       "The weight limit of the transactions",
+	"getblocktemplateresult-default_witness_commitment": "Default witness commitment to use.",
 	"getblocktemplateresult-coinbaseaux":       "Data that should be included in the coinbase signature script",
 	"getblocktemplateresult-coinbasetxn":       "Information about the coinbase transaction",
 	"getblocktemplateresult-coinbasevalue":     "Total amount available for the coinbase in Satoshi",
@@ -377,17 +392,18 @@ var helpDescsEnUS = map[string]string{
 	"getmempoolinforesult-size":  "Number of transactions in the mempool",
 
 	// GetMiningInfoResult help.
-	"getmininginforesult-blocks":           "Height of the latest best block",
-	"getmininginforesult-currentblocksize": "Size of the latest best block",
-	"getmininginforesult-currentblocktx":   "Number of transactions in the latest best block",
-	"getmininginforesult-difficulty":       "Current target difficulty",
-	"getmininginforesult-errors":           "Any current errors",
-	"getmininginforesult-generate":         "Whether or not server is set to generate coins",
-	"getmininginforesult-genproclimit":     "Number of processors to use for coin generation (-1 when disabled)",
-	"getmininginforesult-hashespersec":     "Recent hashes per second performance measurement while generating coins",
-	"getmininginforesult-networkhashps":    "Estimated network hashes per second for the most recent blocks",
-	"getmininginforesult-pooledtx":         "Number of transactions in the memory pool",
-	"getmininginforesult-testnet":          "Whether or not server is using testnet",
+	"getmininginforesult-blocks":             "Height of the latest best block",
+	"getmininginforesult-currentblockweight": "Base size * 3 + Total size",
+	"getmininginforesult-currentblocksize":   "Size of the latest best block",
+	"getmininginforesult-currentblocktx":     "Number of transactions in the latest best block",
+	"getmininginforesult-difficulty":         "Current target difficulty",
+	"getmininginforesult-errors":             "Any current errors",
+	"getmininginforesult-generate":           "Whether or not server is set to generate coins",
+	"getmininginforesult-genproclimit":       "Number of processors to use for coin generation (-1 when disabled)",
+	"getmininginforesult-hashespersec":       "Recent hashes per second performance measurement while generating coins",
+	"getmininginforesult-networkhashps":      "Estimated network hashes per second for the most recent blocks",
+	"getmininginforesult-pooledtx":           "Number of transactions in the memory pool",
+	"getmininginforesult-testnet":            "Whether or not server is using testnet",
 
 	// GetMiningInfoCmd help.
 	"getmininginfo--synopsis": "Returns a JSON object containing mining-related information.",
@@ -434,6 +450,7 @@ var helpDescsEnUS = map[string]string{
 
 	// GetRawMempoolVerboseResult help.
 	"getrawmempoolverboseresult-size":             "Transaction size in bytes",
+	"getrawmempoolverboseresult-vsize":            "Virtual size of the transaction",
 	"getrawmempoolverboseresult-fee":              "Transaction fee in bitcoins",
 	"getrawmempoolverboseresult-time":             "Local time transaction entered pool in seconds since 1 Jan 1970 GMT",
 	"getrawmempoolverboseresult-height":           "Block height when transaction entered the pool",
@@ -493,6 +510,7 @@ var helpDescsEnUS = map[string]string{
 	"searchrawtransactions--condition0": "verbose=0",
 	"searchrawtransactions--condition1": "verbose=1",
 	"searchrawtransactions-skip":        "The number of leading transactions to leave out of the final response",
+
 	"searchrawtransactions-count":       "The maximum number of transactions to return",
 	"searchrawtransactions-vinextra":    "Specify that extra data from previous output will be returned in vin",
 	"searchrawtransactions-reverse":     "Specifies that the transactions should be returned in reverse chronological order",
