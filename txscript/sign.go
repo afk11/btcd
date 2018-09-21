@@ -266,28 +266,17 @@ func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 // each other, behaviour is undefined if this contract is broken.
 func mergeMultiSig(tx *wire.MsgTx, idx int, addresses []btcutil.Address,
 	nRequired int, pkScript []byte, stack [][]byte, prevStack [][]byte) [][]byte {
+	if len(stack) == 0 {
+		return prevStack
+	}
 	// This is an internal only function and we already parsed this script
 	// as ok for multisig (this is how we got here), so if this fails then
 	// all assumptions are broken and who knows which way is up?
 	pkPops, _ := parseScript(pkScript)
 
-	if len(stack) == 0 {
-		return prevStack
-	}
-
-	// Convenience function to avoid duplication.
-	extractSigs := func(pops [][]byte, sigs [][]byte) [][]byte {
-		for _, pop := range pops {
-			if len(pop) != 0 {
-				sigs = append(sigs, pop)
-			}
-		}
-		return sigs
-	}
-
 	possibleSigs := make([][]byte, 0, len(stack)+len(prevStack))
-	possibleSigs = extractSigs(stack, possibleSigs)
-	possibleSigs = extractSigs(prevStack, possibleSigs)
+	possibleSigs = append(possibleSigs, stack...)
+	possibleSigs = append(possibleSigs, prevStack...)
 
 	// Now we need to match the signatures to pubkeys, the only real way to
 	// do that is to try to verify them all and match it to the pubkey
@@ -359,7 +348,7 @@ sigLoop:
 
 	// padding for missing ones.
 	for i := doneSigs; i < nRequired; i++ {
-		mergedStack = append(mergedStack, []byte{0x00})
+		mergedStack = append(mergedStack, []byte{OP_0})
 	}
 
 	return mergedStack
