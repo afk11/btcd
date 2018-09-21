@@ -5,6 +5,7 @@
 package txscript
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -238,44 +239,7 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	pkScript []byte, class ScriptClass, addresses []btcutil.Address,
 	nRequired int, stack [][]byte, prevStack [][]byte) [][]byte {
-
-	// TODO: the scripthash and multisig paths here are overly
-	// inefficient in that they will recompute already known data.
-	// some internal refactoring could probably make this avoid needless
-	// extra calculations.
 	switch class {
-	case ScriptHashTy:
-		// Remove the last push in the script and then recurse.
-		// this could be a lot less inefficient.
-		if len(stack) == 0 {
-			return prevStack
-		}
-		if len(prevStack) == 0 {
-			return stack
-		}
-
-		// assume that script in sigPops is the correct one, we just
-		// made it.
-		script := stack[len(stack)-1]
-
-		// We already know this information somewhere up the stack.
-		class, addresses, nrequired, _ :=
-			ExtractPkScriptAddrs(script, chainParams)
-
-		// regenerate scripts.
-
-		// Merge
-		//fmt.Printf("%s\n", class.String())
-		//fmt.Printf("redeemScript: %s\n", hex.EncodeToString(script))
-		//fmt.Printf("sigScript: %+v\n", stack)
-		//fmt.Printf("prevScript: %s\n", prevStack)
-		//os.Exit(1)
-		mergedStack := mergeScripts(chainParams, tx, idx, script,
-			class, addresses, nrequired, stack, prevStack)
-
-		// Reappend the script and return the result.
-		mergedStack = append(mergedStack, script)
-		return mergedStack
 	case MultiSigTy:
 		return mergeMultiSig(tx, idx, addresses, nRequired, pkScript,
 			stack, prevStack)
@@ -302,7 +266,6 @@ func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 // each other, behaviour is undefined if this contract is broken.
 func mergeMultiSig(tx *wire.MsgTx, idx int, addresses []btcutil.Address,
 	nRequired int, pkScript []byte, stack [][]byte, prevStack [][]byte) [][]byte {
-
 	// This is an internal only function and we already parsed this script
 	// as ok for multisig (this is how we got here), so if this fails then
 	// all assumptions are broken and who knows which way is up?
@@ -334,7 +297,6 @@ func mergeMultiSig(tx *wire.MsgTx, idx int, addresses []btcutil.Address,
 	addrToSig := make(map[string][]byte)
 sigLoop:
 	for _, sig := range possibleSigs {
-
 		// can't have a valid signature that doesn't at least have a
 		// hashtype, in practise it is even longer than this. but
 		// that'll be checked next.
@@ -452,8 +414,9 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 
 	if class == ScriptHashTy {
 		redeemScript = stack[0]
+		pkScript = stack[0]
 		// TODO keep the sub addressed and pass down to merge.
-		stack, _, _, nrequired, err = sign(chainParams, tx, idx,
+		stack, class, addresses, nrequired, err = sign(chainParams, tx, idx,
 			redeemScript, hashType, kdb, sdb)
 		if err != nil {
 			return nil, err
@@ -485,12 +448,14 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	//	}
 	//}
 
-	// Append the p2sh script as the last push in the script.
-	if redeemScript != nil {
-		stack = append(stack, redeemScript)
-	}
-
 	prevStack, _ := PushedData(previousScript)
+
+	if redeemScript != nil && len(prevStack) > 0 {
+		// strip off the redeemScript if present
+		if bytes.Equal(prevStack[len(prevStack)-1], redeemScript) {
+			prevStack = prevStack[:len(prevStack)-1]
+		}
+	}
 
 	// Merge scripts. with any previous data, if any.
 	mergedScript := mergeScripts(chainParams, tx, idx, pkScript, class,
@@ -500,6 +465,13 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	for i := 0; i < len(mergedScript); i++ {
 		script.AddData(mergedScript[i])
 	}
+	if redeemScript != nil {
+		script.AddData(redeemScript)
+	}
+	s, err := script.Script()
+	if err != nil {
+		return nil, err
+	}
 
-	return script.Script()
+	return s, nil
 }
