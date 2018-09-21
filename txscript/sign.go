@@ -86,15 +86,7 @@ func RawTxInSignature(tx *wire.MsgTx, idx int, subScript []byte,
 	return append(signature.Serialize(), byte(hashType)), nil
 }
 
-// SignatureScript creates an input signature script for tx to spend BTC sent
-// from a previous output to the owner of privKey. tx must include all
-// transaction inputs and outputs, however txin scripts are allowed to be filled
-// or empty. The returned script is calculated to be used as the idx'th txin
-// sigscript for tx. subscript is the PkScript of the previous output being used
-// as the idx'th input. privKey is serialized in either a compressed or
-// uncompressed format based on compress. This format must match the same format
-// used to generate the payment address, or the script validation will fail.
-func SignatureScript(tx *wire.MsgTx, idx int, subscript []byte, hashType SigHashType, privKey *btcec.PrivateKey, compress bool) ([]byte, error) {
+func p2pkhSignatureStack(tx *wire.MsgTx, idx int, subscript []byte, hashType SigHashType, privKey *btcec.PrivateKey, compress bool) ([][]byte, error) {
 	sig, err := RawTxInSignature(tx, idx, subscript, hashType, privKey)
 	if err != nil {
 		return nil, err
@@ -108,16 +100,41 @@ func SignatureScript(tx *wire.MsgTx, idx int, subscript []byte, hashType SigHash
 		pkData = pk.SerializeUncompressed()
 	}
 
-	return NewScriptBuilder().AddData(sig).AddData(pkData).Script()
+	stack := make([][]byte, 2)
+	stack[0] = sig
+	stack[1] = pkData
+	return stack, nil
 }
 
-func p2pkSignatureScript(tx *wire.MsgTx, idx int, subScript []byte, hashType SigHashType, privKey *btcec.PrivateKey) ([]byte, error) {
+// SignatureScript creates an input signature script for tx to spend BTC sent
+// from a previous output to the owner of privKey. tx must include all
+// transaction inputs and outputs, however txin scripts are allowed to be filled
+// or empty. The returned script is calculated to be used as the idx'th txin
+// sigscript for tx. subscript is the PkScript of the previous output being used
+// as the idx'th input. privKey is serialized in either a compressed or
+// uncompressed format based on compress. This format must match the same format
+// used to generate the payment address, or the script validation will fail.
+func SignatureScript(tx *wire.MsgTx, idx int, subscript []byte, hashType SigHashType, privKey *btcec.PrivateKey, compress bool) ([]byte, error) {
+	stack, err := p2pkhSignatureStack(tx, idx, subscript, hashType, privKey, compress)
+	if err != nil {
+		return nil, err
+	}
+	builder := NewScriptBuilder()
+	for i := 0; i < len(stack); i++ {
+		builder.AddData(stack[i])
+	}
+	return builder.Script()
+}
+
+func p2pkSignatureStack(tx *wire.MsgTx, idx int, subScript []byte, hashType SigHashType, privKey *btcec.PrivateKey) ([][]byte, error) {
 	sig, err := RawTxInSignature(tx, idx, subScript, hashType, privKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewScriptBuilder().AddData(sig).Script()
+	stack := make([][]byte, 1)
+	stack[0] = sig
+	return stack, nil
 }
 
 // signMultiSig signs as many of the outputs in the provided multisig script as
@@ -125,12 +142,14 @@ func p2pkSignatureScript(tx *wire.MsgTx, idx int, subScript []byte, hashType Sig
 // the contract (i.e. nrequired signatures are provided).  Since it is arguably
 // legal to not be able to sign any of the outputs, no error is returned.
 func signMultiSig(tx *wire.MsgTx, idx int, subScript []byte, hashType SigHashType,
-	addresses []btcutil.Address, nRequired int, kdb KeyDB) ([]byte, bool) {
+	addresses []btcutil.Address, nRequired int, kdb KeyDB) ([][]byte, bool) {
 	// We start with a single OP_FALSE to work around the (now standard)
 	// but in the reference implementation that causes a spurious pop at
 	// the end of OP_CHECKMULTISIG.
-	builder := NewScriptBuilder().AddOp(OP_FALSE)
+
 	signed := 0
+	stack := make([][]byte, 1)
+	stack[0] = []byte{}
 	for _, addr := range addresses {
 		key, _, err := kdb.GetKey(addr)
 		if err != nil {
@@ -141,20 +160,18 @@ func signMultiSig(tx *wire.MsgTx, idx int, subScript []byte, hashType SigHashTyp
 			continue
 		}
 
-		builder.AddData(sig)
+		stack = append(stack, sig)
 		signed++
 		if signed == nRequired {
 			break
 		}
-
 	}
 
-	script, _ := builder.Script()
-	return script, signed == nRequired
+	return stack, signed == nRequired
 }
 
 func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
-	subScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB) ([]byte,
+	subScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB) ([][]byte,
 	ScriptClass, []btcutil.Address, int, error) {
 
 	class, addresses, nrequired, err := ExtractPkScriptAddrs(subScript,
@@ -171,13 +188,13 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 			return nil, class, nil, 0, err
 		}
 
-		script, err := p2pkSignatureScript(tx, idx, subScript, hashType,
+		stack, err := p2pkSignatureStack(tx, idx, subScript, hashType,
 			key)
 		if err != nil {
 			return nil, class, nil, 0, err
 		}
 
-		return script, class, addresses, nrequired, nil
+		return stack, class, addresses, nrequired, nil
 	case PubKeyHashTy:
 		// look up key for address
 		key, compressed, err := kdb.GetKey(addresses[0])
@@ -185,24 +202,24 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 			return nil, class, nil, 0, err
 		}
 
-		script, err := SignatureScript(tx, idx, subScript, hashType,
+		stack, err := p2pkhSignatureStack(tx, idx, subScript, hashType,
 			key, compressed)
 		if err != nil {
 			return nil, class, nil, 0, err
 		}
 
-		return script, class, addresses, nrequired, nil
+		return stack, class, addresses, nrequired, nil
 	case ScriptHashTy:
 		script, err := sdb.GetScript(addresses[0])
 		if err != nil {
 			return nil, class, nil, 0, err
 		}
 
-		return script, class, addresses, nrequired, nil
+		return [][]byte{script}, class, addresses, nrequired, nil
 	case MultiSigTy:
-		script, _ := signMultiSig(tx, idx, subScript, hashType,
+		stack, _ := signMultiSig(tx, idx, subScript, hashType,
 			addresses, nrequired, kdb)
-		return script, class, addresses, nrequired, nil
+		return stack, class, addresses, nrequired, nil
 	case NullDataTy:
 		return nil, class, nil, 0,
 			errors.New("can't sign NULLDATA transactions")
@@ -433,32 +450,62 @@ func (sc ScriptClosure) GetScript(address btcutil.Address) ([]byte, error) {
 func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	pkScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
 	previousScript []byte) ([]byte, error) {
-
-	sigScript, class, addresses, nrequired, err := sign(chainParams, tx,
+	var redeemScript []byte
+	//var witnessScript []byte
+	stack, class, addresses, nrequired, err := sign(chainParams, tx,
 		idx, pkScript, hashType, kdb, sdb)
 	if err != nil {
 		return nil, err
 	}
 
 	if class == ScriptHashTy {
+		redeemScript = stack[0]
 		// TODO keep the sub addressed and pass down to merge.
-		realSigScript, _, _, _, err := sign(chainParams, tx, idx,
-			sigScript, hashType, kdb, sdb)
+		stack, _, _, nrequired, err = sign(chainParams, tx, idx,
+			redeemScript, hashType, kdb, sdb)
 		if err != nil {
 			return nil, err
 		}
-
-		// Append the p2sh script as the last push in the script.
-		builder := NewScriptBuilder()
-		builder.AddOps(realSigScript)
-		builder.AddData(sigScript)
-
-		sigScript, _ = builder.Script()
+		//if class == ScriptHashTy {
+		//	return nil, errors.New("cannot nest P2SH scripts")
+		//}
 		// TODO keep a copy of the script for merging.
 	}
+	//
+	//if class == WitnessV0ScriptHashTy {
+	//	witnessScript = stack[0]
+	//	stack, class, _, _, err = sign(chainParams, tx, idx,
+	//		witnessScript, hashType, kdb, sdb)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	if class == ScriptHashTy {
+	//		return nil, errors.New("cannot nest P2SH inside P2WSH")
+	//	} else if class == WitnessV0ScriptHashTy {
+	//		return nil, errors.New("cannot nest P2SH inside P2WSH")
+	//	}
+	//} else if class == WitnessV0PubKeyHashTy {
+	//	witnessScript = stack[0]
+	//	stack, class, _, _, err = sign(chainParams, tx, idx,
+	//		witnessScript, hashType, kdb, sdb)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//}
+
+	// Append the p2sh script as the last push in the script.
+	builder := NewScriptBuilder()
+	for i := 0; i < len(stack); i++ {
+		builder.AddData(stack[i])
+	}
+	if redeemScript != nil {
+		builder.AddData(redeemScript)
+	}
+	script, _ := builder.Script()
 
 	// Merge scripts. with any previous data, if any.
 	mergedScript := mergeScripts(chainParams, tx, idx, pkScript, class,
-		addresses, nrequired, sigScript, previousScript)
+		addresses, nrequired, script, previousScript)
+
 	return mergedScript, nil
 }

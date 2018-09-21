@@ -1,5 +1,5 @@
 hash: 4d4efdd452d746ef15b66d35caadb3cbd58bb299e9c1f5172e90b2f3f272863f
-updated: 2018-08-23T22:38:49.421147894-07:00
+updated: 2018-09-08T23:11:20.324192988+02:00
 imports:
 - name: github.com/aead/siphash
   version: 83563a290f60225eb120d724600b9690c3fb536f
@@ -19,7 +19,7 @@ imports:
   subpackages:
   - socks
 - name: github.com/btcsuite/goleveldb
-  version: 7834afc9e8cd15233b6c3d97e12674a31ca24602
+  version: 3fd0373267b6461dbefe91cef614278064d05465
   subpackages:
   - leveldb
   - leveldb/cache
@@ -34,7 +34,7 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/btcsuite/snappy-go
-  version: 0bdef8d067237991ddaa1bb6072a740bc40601ba
+  version: b3db38edf0a9a11a115eb6b022d8c946024a9ac0
 - name: github.com/btcsuite/websocket
   version: 31079b6807923eb23992c421b114992b95131b55
 - name: github.com/btcsuite/winsvc
@@ -46,7 +46,7 @@ imports:
   - svc
   - winapi
 - name: github.com/davecgh/go-spew
-  version: ecdeabc65495df2dec95d7c4a4c3e021903035e5
+  version: 6d212800a42e8ab5c146b8ace3490ee17e5225f9
   subpackages:
   - spew
 - name: github.com/jessevdk/go-flags
@@ -56,9 +56,9 @@ imports:
   subpackages:
   - rotator
 - name: github.com/kkdai/bstream
-  version: f391b8402d23024e7c0f624b31267a89998fca95
+  version: f71540b9dfdcfe64dbf2818e9b66423c6aafcacd
 - name: golang.org/x/crypto
-  version: 9419663f5a44be8b34ca85f08abc5fe1be11f8a3
+  version: 122d919ec1efcfb58483215da23f815853e24b81
   subpackages:
   - ripemd160
 testImports: []
