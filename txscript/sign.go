@@ -210,7 +210,7 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes, 
 		}
 
 		return stack, class, addresses, nrequired, nil
-	case ScriptHashTy, WitnessV0ScriptHashTy:
+	case ScriptHashTy:
 		script, err := sdb.GetScript(addresses[0])
 		if err != nil {
 			return nil, class, nil, 0, err
@@ -236,11 +236,11 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes, 
 // The return value is the best effort merging of the two scripts. Calling this
 // function with addresses, class and nrequired that do not match pkScript is
 // an error and results in undefined behaviour.
-func mergeScripts(tx *wire.MsgTx, idx int, pkScript []byte, class ScriptClass,
-	addresses []btcutil.Address, nRequired int, stack [][]byte, prevStack [][]byte) [][]byte {
+func mergeScripts(tx *wire.MsgTx, sigHashes *TxSigHashes, sigVersion int, idx int, amt int64, pkScript []byte,
+	class ScriptClass, addresses []btcutil.Address, nRequired int, stack [][]byte, prevStack [][]byte) ([][]byte, error) {
 	switch class {
 	case MultiSigTy:
-		return mergeMultiSig(tx, idx, addresses, nRequired, pkScript,
+		return mergeMultiSig(tx, sigHashes, sigVersion, idx, addresses, nRequired, amt, pkScript,
 			stack, prevStack)
 
 	// It doesn't actually make sense to merge anything other than multiig
@@ -251,9 +251,9 @@ func mergeScripts(tx *wire.MsgTx, idx int, pkScript []byte, class ScriptClass,
 	// correct (this matches behaviour of the reference implementation).
 	default:
 		if len(stack) > len(prevStack) {
-			return stack
+			return stack, nil
 		}
-		return prevStack
+		return prevStack, nil
 	}
 }
 
@@ -263,10 +263,11 @@ func mergeScripts(tx *wire.MsgTx, idx int, pkScript []byte, class ScriptClass,
 // pkScript. Since this function is internal only we assume that the arguments
 // have come from other functions internally and thus are all consistent with
 // each other, behaviour is undefined if this contract is broken.
-func mergeMultiSig(tx *wire.MsgTx, idx int, addresses []btcutil.Address,
-	nRequired int, pkScript []byte, stack [][]byte, prevStack [][]byte) [][]byte {
+func mergeMultiSig(tx *wire.MsgTx, sigHashes *TxSigHashes, sigVersion int, idx int,
+	addresses []btcutil.Address, nRequired int, amt int64, pkScript []byte, stack [][]byte,
+	prevStack [][]byte) ([][]byte, error) {
 	if len(stack) == 0 {
-		return prevStack
+		return prevStack, nil
 	}
 	// This is an internal only function and we already parsed this script
 	// as ok for multisig (this is how we got here), so if this fails then
@@ -304,7 +305,16 @@ sigLoop:
 		// however, assume no sigs etc are in the script since that
 		// would make the transaction nonstandard and thus not
 		// MultiSigTy, so we just need to hash the full thing.
-		hash := calcSignatureHash(pkPops, hashType, tx, idx)
+		var hash []byte
+		if sigVersion == 1 {
+			var err error
+			hash, err = calcWitnessSignatureHash(pkPops, sigHashes, hashType, tx, idx, amt)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			hash = calcSignatureHash(pkPops, hashType, tx, idx)
+		}
 
 		for _, addr := range addresses {
 			// All multisig addresses should be pubkey addresses
@@ -350,7 +360,7 @@ sigLoop:
 		mergedStack = append(mergedStack, []byte{OP_0})
 	}
 
-	return mergedStack
+	return mergedStack, nil
 }
 
 // KeyDB is an interface type provided to SignTxOutput, it encapsulates
@@ -393,8 +403,9 @@ func (sc ScriptClosure) GetScript(address btcutil.Address) ([]byte, error) {
 func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	pkScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
 	previousScript []byte) ([]byte, error) {
-	return SignTxOutputWitness(chainParams, tx, idx, pkScript, 0,
+	script, _, err := SignTxOutputWitness(chainParams, tx, nil, idx, pkScript, 0,
 		hashType, kdb, sdb, previousScript, nil)
+	return script, err
 }
 
 // SignTxOutputWitness signs output idx of the given tx to resolve the script
@@ -404,84 +415,106 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 // getScript. If previousScript is provided then the results in previousScript
 // will be merged in a type-dependent manner with the newly generated.
 // signature script.
-func SignTxOutputWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
-	pkScript []byte, amt int64, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
-	previousScript []byte, previousWitness wire.TxWitness) ([]byte, error) {
+func SignTxOutputWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes,
+	idx int, pkScript []byte, amt int64, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
+	previousScript []byte, previousWitness wire.TxWitness) ([]byte, wire.TxWitness, error) {
+	sigVersion := 0
 	var redeemScript []byte
-	//var witnessScript []byte
+	var witnessScript []byte
 	prevStack, err := PushedData(previousScript)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	stack, class, addresses, nrequired, err := sign(chainParams, tx, nil,
-		idx, pkScript, 0, 0, hashType, kdb, sdb)
+	stack, class, addresses, nrequired, err := sign(chainParams, tx, sigHashes,
+		idx, pkScript, 0, sigVersion, hashType, kdb, sdb)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if class == ScriptHashTy {
 		redeemScript = stack[0]
 		pkScript = stack[0]
-		stack, class, addresses, nrequired, err = sign(chainParams, tx, nil,
-			idx, redeemScript, 0, 0, hashType, kdb, sdb)
+		stack, class, addresses, nrequired, err = sign(chainParams, tx, sigHashes,
+			idx, redeemScript, 0, sigVersion, hashType, kdb, sdb)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if class == ScriptHashTy {
-			return nil, errors.New("cannot nest P2SH scripts")
+			return nil, nil, errors.New("cannot nest P2SH scripts")
 		}
 		if len(prevStack) > 0 {
-			// strip off the redeemScript if present. our new stack won't
-			// have this yet
+			// strip redeemScript from prevStack if present. our stack won't have this
 			if bytes.Equal(prevStack[len(prevStack)-1], redeemScript) {
 				prevStack = prevStack[:len(prevStack)-1]
 			}
 		}
 	}
 
-	//if class == WitnessV0ScriptHashTy {
-	//	witnessScript = stack[0]
-	//	stack, class, _, _, err = sign(chainParams, tx, nil,
-	//		idx, witnessScript, amt, 1, hashType, kdb, sdb)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	if class == ScriptHashTy {
-	//		return nil, errors.New("cannot nest P2SH inside P2WSH")
-	//	} else if class == WitnessV0ScriptHashTy {
-	//		return nil, errors.New("cannot nest P2WSH inside P2WSH")
-	//	}
-	//} else if class == WitnessV0PubKeyHashTy {
-	//	p2wpkh, err := btcutil.NewAddressPubKeyHash(pkScript[2:], chainParams)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	script, err := PayToAddrScript(p2wpkh)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	stack, class, _, _, err = sign(chainParams, tx, nil,
-	//		idx, script, amt, 1, hashType, kdb, sdb)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//}
+	if class == WitnessV0ScriptHashTy {
+		sigVersion = 1
+		witnessScript = stack[0]
+		pkScript = stack[0]
+		stack, class, addresses, nrequired, err = sign(chainParams, tx, sigHashes,
+			idx, witnessScript, amt, sigVersion, hashType, kdb, sdb)
+		if err != nil {
+			return nil, nil, err
+		}
+		if class == ScriptHashTy {
+			return nil, nil, errors.New("cannot nest P2SH inside P2WSH")
+		} else if class == WitnessV0ScriptHashTy {
+			return nil, nil, errors.New("cannot nest P2WSH inside P2WSH")
+		}
+		if len(previousWitness) > 0 {
+			if bytes.Equal(previousWitness[len(previousWitness)-1], witnessScript) {
+				// strip witnessScript from prevStack if present. our stack won't have this
+				previousWitness = previousWitness[:len(previousWitness)-1]
+			}
+		}
+	} else if class == WitnessV0PubKeyHashTy {
+		sigVersion = 1
+		p2wpkh, err := btcutil.NewAddressPubKeyHash(pkScript[2:], chainParams)
+		if err != nil {
+			return nil, nil, err
+		}
+		script, err := PayToAddrScript(p2wpkh)
+		if err != nil {
+			return nil, nil, err
+		}
+		stack, class, addresses, nrequired, err = sign(chainParams, tx, sigHashes,
+			idx, script, amt, sigVersion, hashType, kdb, sdb)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 
 	// Merge scripts. with any previous data, if any.
-	mergedStack := mergeScripts(tx, idx, pkScript, class, addresses,
-		nrequired, stack, prevStack)
+	var scriptStack [][]byte
+	var witness wire.TxWitness
+	if sigVersion == 1 {
+		witness, err = mergeScripts(tx, sigHashes, sigVersion, idx, amt, pkScript, class, addresses,
+			nrequired, stack, previousWitness)
+	} else {
+		scriptStack, err = mergeScripts(tx, sigHashes, sigVersion, idx, amt, pkScript, class, addresses,
+			nrequired, stack, prevStack)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
 
-	script := NewScriptBuilder()
-	for i := 0; i < len(mergedStack); i++ {
-		script.AddData(mergedStack[i])
+	builder := NewScriptBuilder()
+	for i := 0; i < len(scriptStack); i++ {
+		builder.AddData(scriptStack[i])
 	}
 	if redeemScript != nil {
-		script.AddData(redeemScript)
+		builder.AddData(redeemScript)
 	}
-	s, err := script.Script()
+	s, err := builder.Script()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	if witnessScript != nil {
+		witness = append(witness, witnessScript)
 	}
 
-	return s, nil
+	return s, witness, nil
 }
