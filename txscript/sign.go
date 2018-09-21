@@ -401,11 +401,30 @@ func (sc ScriptClosure) GetScript(address btcutil.Address) ([]byte, error) {
 // getScript. If previousScript is provided then the results in previousScript
 // will be merged in a type-dependent manner with the newly generated.
 // signature script.
+// todo: document what happens when signing a witness tx with this
 func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	pkScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
 	previousScript []byte) ([]byte, error) {
+	return SignTxOutputWitness(chainParams, tx, idx, pkScript, hashType,
+		kdb, sdb, previousScript, nil)
+}
+
+// SignTxOutputWitness signs output idx of the given tx to resolve the script
+// given in pkScript with a signature type of hashType. Any keys required will
+// be looked up by calling getKey() with the string of the given address.
+// Any pay-to-script-hash signatures will be similarly looked up by calling
+// getScript. If previousScript is provided then the results in previousScript
+// will be merged in a type-dependent manner with the newly generated.
+// signature script.
+func SignTxOutputWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
+	pkScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
+	previousScript []byte, previousWitness wire.TxWitness) ([]byte, error) {
 	var redeemScript []byte
 	//var witnessScript []byte
+	prevStack, err := PushedData(previousScript)
+	if err != nil {
+		return nil, err
+	}
 	stack, class, addresses, nrequired, err := sign(chainParams, tx,
 		idx, pkScript, hashType, kdb, sdb)
 	if err != nil {
@@ -415,18 +434,23 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	if class == ScriptHashTy {
 		redeemScript = stack[0]
 		pkScript = stack[0]
-		// TODO keep the sub addressed and pass down to merge.
 		stack, class, addresses, nrequired, err = sign(chainParams, tx, idx,
 			redeemScript, hashType, kdb, sdb)
 		if err != nil {
 			return nil, err
 		}
-		//if class == ScriptHashTy {
-		//	return nil, errors.New("cannot nest P2SH scripts")
-		//}
-		// TODO keep a copy of the script for merging.
+		if class == ScriptHashTy {
+			return nil, errors.New("cannot nest P2SH scripts")
+		}
+		if len(prevStack) > 0 {
+			// strip off the redeemScript if present. our new stack won't
+			// have this yet
+			if bytes.Equal(prevStack[len(prevStack)-1], redeemScript) {
+				prevStack = prevStack[:len(prevStack)-1]
+			}
+		}
 	}
-	//
+
 	//if class == WitnessV0ScriptHashTy {
 	//	witnessScript = stack[0]
 	//	stack, class, _, _, err = sign(chainParams, tx, idx,
@@ -448,22 +472,13 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	//	}
 	//}
 
-	prevStack, _ := PushedData(previousScript)
-
-	if redeemScript != nil && len(prevStack) > 0 {
-		// strip off the redeemScript if present
-		if bytes.Equal(prevStack[len(prevStack)-1], redeemScript) {
-			prevStack = prevStack[:len(prevStack)-1]
-		}
-	}
-
 	// Merge scripts. with any previous data, if any.
-	mergedScript := mergeScripts(chainParams, tx, idx, pkScript, class,
+	mergedStack := mergeScripts(chainParams, tx, idx, pkScript, class,
 		addresses, nrequired, stack, prevStack)
 
 	script := NewScriptBuilder()
-	for i := 0; i < len(mergedScript); i++ {
-		script.AddData(mergedScript[i])
+	for i := 0; i < len(mergedStack); i++ {
+		script.AddData(mergedStack[i])
 	}
 	if redeemScript != nil {
 		script.AddData(redeemScript)
