@@ -237,7 +237,7 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 // an error and results in undefined behaviour.
 func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	pkScript []byte, class ScriptClass, addresses []btcutil.Address,
-	nRequired int, sigScript, prevScript []byte) []byte {
+	nRequired int, stack [][]byte, prevStack [][]byte) [][]byte {
 
 	// TODO: the scripthash and multisig paths here are overly
 	// inefficient in that they will recompute already known data.
@@ -247,40 +247,38 @@ func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	case ScriptHashTy:
 		// Remove the last push in the script and then recurse.
 		// this could be a lot less inefficient.
-		sigPops, err := parseScript(sigScript)
-		if err != nil || len(sigPops) == 0 {
-			return prevScript
+		if len(stack) == 0 {
+			return prevStack
 		}
-		prevPops, err := parseScript(prevScript)
-		if err != nil || len(prevPops) == 0 {
-			return sigScript
+		if len(prevStack) == 0 {
+			return stack
 		}
 
 		// assume that script in sigPops is the correct one, we just
 		// made it.
-		script := sigPops[len(sigPops)-1].data
+		script := stack[len(stack)-1]
 
 		// We already know this information somewhere up the stack.
 		class, addresses, nrequired, _ :=
 			ExtractPkScriptAddrs(script, chainParams)
 
 		// regenerate scripts.
-		sigScript, _ := unparseScript(sigPops)
-		prevScript, _ := unparseScript(prevPops)
 
 		// Merge
-		mergedScript := mergeScripts(chainParams, tx, idx, script,
-			class, addresses, nrequired, sigScript, prevScript)
+		//fmt.Printf("%s\n", class.String())
+		//fmt.Printf("redeemScript: %s\n", hex.EncodeToString(script))
+		//fmt.Printf("sigScript: %+v\n", stack)
+		//fmt.Printf("prevScript: %s\n", prevStack)
+		//os.Exit(1)
+		mergedStack := mergeScripts(chainParams, tx, idx, script,
+			class, addresses, nrequired, stack, prevStack)
 
 		// Reappend the script and return the result.
-		builder := NewScriptBuilder()
-		builder.AddOps(mergedScript)
-		builder.AddData(script)
-		finalScript, _ := builder.Script()
-		return finalScript
+		mergedStack = append(mergedStack, script)
+		return mergedStack
 	case MultiSigTy:
 		return mergeMultiSig(tx, idx, addresses, nRequired, pkScript,
-			sigScript, prevScript)
+			stack, prevStack)
 
 	// It doesn't actually make sense to merge anything other than multiig
 	// and scripthash (because it could contain multisig). Everything else
@@ -289,10 +287,10 @@ func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	// above. In the conflict case here we just assume the longest is
 	// correct (this matches behaviour of the reference implementation).
 	default:
-		if len(sigScript) > len(prevScript) {
-			return sigScript
+		if len(stack) > len(prevStack) {
+			return stack
 		}
-		return prevScript
+		return prevStack
 	}
 }
 
@@ -303,36 +301,30 @@ func mergeScripts(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 // have come from other functions internally and thus are all consistent with
 // each other, behaviour is undefined if this contract is broken.
 func mergeMultiSig(tx *wire.MsgTx, idx int, addresses []btcutil.Address,
-	nRequired int, pkScript, sigScript, prevScript []byte) []byte {
+	nRequired int, pkScript []byte, stack [][]byte, prevStack [][]byte) [][]byte {
 
 	// This is an internal only function and we already parsed this script
 	// as ok for multisig (this is how we got here), so if this fails then
 	// all assumptions are broken and who knows which way is up?
 	pkPops, _ := parseScript(pkScript)
 
-	sigPops, err := parseScript(sigScript)
-	if err != nil || len(sigPops) == 0 {
-		return prevScript
-	}
-
-	prevPops, err := parseScript(prevScript)
-	if err != nil || len(prevPops) == 0 {
-		return sigScript
+	if len(stack) == 0 {
+		return prevStack
 	}
 
 	// Convenience function to avoid duplication.
-	extractSigs := func(pops []parsedOpcode, sigs [][]byte) [][]byte {
+	extractSigs := func(pops [][]byte, sigs [][]byte) [][]byte {
 		for _, pop := range pops {
-			if len(pop.data) != 0 {
-				sigs = append(sigs, pop.data)
+			if len(pop) != 0 {
+				sigs = append(sigs, pop)
 			}
 		}
 		return sigs
 	}
 
-	possibleSigs := make([][]byte, 0, len(sigPops)+len(prevPops))
-	possibleSigs = extractSigs(sigPops, possibleSigs)
-	possibleSigs = extractSigs(prevPops, possibleSigs)
+	possibleSigs := make([][]byte, 0, len(stack)+len(prevStack))
+	possibleSigs = extractSigs(stack, possibleSigs)
+	possibleSigs = extractSigs(prevStack, possibleSigs)
 
 	// Now we need to match the signatures to pubkeys, the only real way to
 	// do that is to try to verify them all and match it to the pubkey
@@ -387,7 +379,8 @@ sigLoop:
 
 	// Extra opcode to handle the extra arg consumed (due to previous bugs
 	// in the reference implementation).
-	builder := NewScriptBuilder().AddOp(OP_FALSE)
+	mergedStack := make([][]byte, 0)
+	mergedStack = append(mergedStack, []byte{OP_FALSE})
 	doneSigs := 0
 	// This assumes that addresses are in the same order as in the script.
 	for _, addr := range addresses {
@@ -395,7 +388,7 @@ sigLoop:
 		if !ok {
 			continue
 		}
-		builder.AddData(sig)
+		mergedStack = append(mergedStack, sig)
 		doneSigs++
 		if doneSigs == nRequired {
 			break
@@ -404,11 +397,10 @@ sigLoop:
 
 	// padding for missing ones.
 	for i := doneSigs; i < nRequired; i++ {
-		builder.AddOp(OP_0)
+		mergedStack = append(mergedStack, []byte{0x00})
 	}
 
-	script, _ := builder.Script()
-	return script
+	return mergedStack
 }
 
 // KeyDB is an interface type provided to SignTxOutput, it encapsulates
@@ -494,18 +486,20 @@ func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	//}
 
 	// Append the p2sh script as the last push in the script.
-	builder := NewScriptBuilder()
-	for i := 0; i < len(stack); i++ {
-		builder.AddData(stack[i])
-	}
 	if redeemScript != nil {
-		builder.AddData(redeemScript)
+		stack = append(stack, redeemScript)
 	}
-	script, _ := builder.Script()
+
+	prevStack, _ := PushedData(previousScript)
 
 	// Merge scripts. with any previous data, if any.
 	mergedScript := mergeScripts(chainParams, tx, idx, pkScript, class,
-		addresses, nrequired, script, previousScript)
+		addresses, nrequired, stack, prevStack)
 
-	return mergedScript, nil
+	script := NewScriptBuilder()
+	for i := 0; i < len(mergedScript); i++ {
+		script.AddData(mergedScript[i])
+	}
+
+	return script.Script()
 }
