@@ -82,7 +82,23 @@ func signAndCheck(msg string, tx *wire.MsgTx, idx int, inputAmt int64, pkScript 
 		return fmt.Errorf("failed to sign output %s: %v", msg, err)
 	}
 
-	return checkScripts(msg, tx, idx, inputAmt, sigScript, pkScript)
+	err = checkScripts(msg, tx, idx, inputAmt, sigScript, pkScript)
+	if err != nil {
+		return fmt.Errorf("failed to verify output %s: %v", msg, err)
+	}
+
+	sigHashes := NewTxSigHashes(tx)
+	sigScript, _, err = SignTxWitness(&chaincfg.TestNet3Params, tx, sigHashes, idx,
+		pkScript, inputAmt, hashType, kdb, sdb, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to sign output with SignTxWitness %s: %v", msg, err)
+	}
+
+	err = checkScriptsAndWitness(msg, tx, sigHashes, idx, inputAmt, sigScript, pkScript, nil)
+	if err != nil {
+		return fmt.Errorf("failed to verify output %s: %v", msg, err)
+	}
+	return nil
 }
 
 func checkScriptsAndWitness(msg string, tx *wire.MsgTx, sigHashes *TxSigHashes, idx int,
@@ -90,7 +106,7 @@ func checkScriptsAndWitness(msg string, tx *wire.MsgTx, sigHashes *TxSigHashes, 
 	tx.TxIn[idx].SignatureScript = sigScript
 	tx.TxIn[idx].Witness = witness
 	vm, err := NewEngine(pkScript, tx, idx,
-		ScriptBip16|ScriptVerifyWitness|ScriptVerifyDERSignatures, nil, nil, inputAmt)
+		ScriptBip16|ScriptVerifyWitness|ScriptVerifyDERSignatures, nil, sigHashes, inputAmt)
 	if err != nil {
 		return fmt.Errorf("failed to make script engine for %s: %v",
 			msg, err)
