@@ -5,7 +5,9 @@
 package txscript
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"testing"
@@ -1547,15 +1549,45 @@ func TestSignTxOutputWitness(t *testing.T) {
 			if err != nil {
 				t.Errorf("failed to make pkscript "+
 					"for %s: %v", msg, err)
+				break
 			}
 
-			if err := signAndCheckWitness(msg, tx, sigHashes, i, inputAmounts[i],
-				pkScript, hashType,
-				mkGetKey(map[string]addressToKey{
+			// call functions directly here as we're going to
+			// verify WitnessSignature's witness later
+			sigScript, wit, err := SignTxWitness(&chaincfg.TestNet3Params, tx, sigHashes, i,
+				pkScript, inputAmounts[i], hashType, mkGetKey(map[string]addressToKey{
 					address.EncodeAddress(): {key, true},
-				}), mkGetScript(nil), nil); err != nil {
-				t.Error(err)
+				}), mkGetScript(nil), nil, nil)
+			if err != nil {
+				t.Errorf("failed to make p2wpkh signature "+
+					"for %s: %v", msg, err)
 				break
+			}
+
+			err = checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i], sigScript, pkScript, wit)
+			if err != nil {
+				t.Errorf("failed to verify p2wpkh signature "+
+					"for %s: %v", msg, err)
+				break
+			}
+
+			witness, err := WitnessSignature(tx, sigHashes, i, inputAmounts[i], pkScript, hashType, key, true)
+			if err != nil {
+				t.Errorf("WitnessSignature failed on valid inputs "+
+					"for %s: %v", msg, err)
+				break
+			}
+			if len(wit) != len(witness) {
+				t.Errorf("WitnessSignature produced invalid witness "+
+					"for %s: %v", msg, err)
+				break
+			}
+			for i := 0; i < len(wit); i++ {
+				if !bytes.Equal(wit[i], witness[i]) {
+					t.Fatalf("WitnessSignature elements dont match %s %s "+
+						"for %s: %v", hex.EncodeToString(wit[i]), hex.EncodeToString(witness[i]),
+						msg, err)
+				}
 			}
 		}
 	}
