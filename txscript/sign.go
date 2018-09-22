@@ -268,6 +268,10 @@ func mergeScripts(tx *wire.MsgTx, sigHashes *TxSigHashes, sigVersion int, idx in
 	amt int64, pkScript []byte, class ScriptClass, addresses []btcutil.Address,
 	nRequired int, stack [][]byte, prevStack [][]byte) ([][]byte, error) {
 	switch class {
+	case ScriptHashTy:
+		return nil, errors.New("cannot merge " + ScriptHashTy.String() + " type")
+	case WitnessV0ScriptHashTy:
+		return nil, errors.New("cannot merge " + WitnessV0ScriptHashTy.String() + " type")
 	case MultiSigTy:
 		return mergeMultiSig(tx, sigHashes, sigVersion, idx, amt, pkScript, addresses, nRequired,
 			stack, prevStack)
