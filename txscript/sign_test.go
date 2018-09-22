@@ -2864,6 +2864,94 @@ func TestSignTxWitnessErrors(t *testing.T) {
 			t.Fatalf("Unexpected error %v", err)
 		}
 	})
+	t.Run("test unknown scriptPubKeys are rejected", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+		prog := sha256.Sum256(key.Serialize())
+		pkScript := make([]byte, 2)
+		pkScript[0] = OP_1
+		pkScript[1] = 32
+		pkScript = append(pkScript, prog[:]...)
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{}), mkGetScript(map[string][]byte{}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "can't sign unknown transactions" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test unknown redeemScripts are rejected", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+		prog := sha256.Sum256(key.Serialize())
+		redeemScript := make([]byte, 2)
+		redeemScript[0] = OP_1
+		redeemScript[1] = 32
+		redeemScript = append(redeemScript, prog[:]...)
+
+		scriptAddr, err := btcutil.NewAddressScriptHash(redeemScript, &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make P2SH addr: %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(scriptAddr)
+		if err != nil {
+			t.Fatalf("failed to make P2SH script: %v", err)
+		}
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{}), mkGetScript(map[string][]byte{
+				scriptAddr.EncodeAddress(): redeemScript,
+			}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "can't sign unknown transactions" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test unknown witnessScripts are rejected", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+		prog := sha256.Sum256(key.Serialize())
+		witnessScript := make([]byte, 2)
+		witnessScript[0] = OP_1
+		witnessScript[1] = 32
+		witnessScript = append(witnessScript, prog[:]...)
+
+		hash := sha256.Sum256(witnessScript)
+		scriptAddr, err := btcutil.NewAddressWitnessScriptHash(hash[:], &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make P2SWH addr: %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(scriptAddr)
+		if err != nil {
+			t.Fatalf("failed to make P2WSH script: %v", err)
+		}
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{}), mkGetScript(map[string][]byte{
+				scriptAddr.EncodeAddress(): witnessScript,
+			}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "can't sign unknown transactions" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
 	t.Run("test scriptSigs are pushonly", func(t *testing.T) {
 		key, err := btcec.NewPrivateKey(btcec.S256())
 		if err != nil {
