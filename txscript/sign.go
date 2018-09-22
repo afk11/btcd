@@ -467,7 +467,7 @@ func SignTxWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSi
 			return nil, nil, err
 		}
 		if class == ScriptHashTy {
-			return nil, nil, errors.New("cannot nest P2SH scripts")
+			return nil, nil, errors.New("cannot nest P2SH inside P2SH")
 		}
 		if len(prevStack) > 0 {
 			// strip redeemScript from prevStack if present. our stack won't have this
