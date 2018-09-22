@@ -1414,6 +1414,38 @@ func TestSignTxOutput(t *testing.T) {
 			}
 		}
 	}
+
+	// test segwit scripts are rejected for not providing sigHashes
+	key, err := btcec.NewPrivateKey(btcec.S256())
+	if err != nil {
+		t.Fatalf("failed to make privKey: %v", err)
+	}
+
+	pk1 := (*btcec.PublicKey)(&key.PublicKey).
+		SerializeCompressed()
+
+	p2wpkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		btcutil.Hash160(pk1), &chaincfg.TestNet3Params)
+	if err != nil {
+		t.Fatalf("failed to make p2wpkh address %v", err)
+	}
+
+	p2wpkhScript, err := PayToAddrScript(p2wpkhAddr)
+	if err != nil {
+		t.Fatalf("failed to make p2wpkh script %v", err)
+	}
+
+	_, err = SignTxOutput(&chaincfg.TestNet3Params,
+		tx, 0, p2wpkhScript, SigHashAll,
+		mkGetKey(map[string]addressToKey{
+			p2wpkhAddr.EncodeAddress(): {key, true},
+		}), mkGetScript(nil), nil)
+	if err == nil {
+		t.Fatal("Error expected")
+	}
+	if err.Error() != "cannot sign segwit outputs without TxSigHashes" {
+		t.Fatalf("Unexpected error %v", err)
+	}
 }
 
 func TestSignTxOutputWitness(t *testing.T) {
@@ -2427,7 +2459,6 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 		}
 	}
-
 }
 
 func TestSignTxWitnessErrors(t *testing.T) {
@@ -2600,7 +2631,7 @@ func TestSignTxWitnessErrors(t *testing.T) {
 				p2pkhAddr.EncodeAddress(): {key, true},
 			}), mkGetScript(map[string][]byte{
 				scriptAddr.EncodeAddress(): witnessScript,
-				p2shAddr.EncodeAddress(): p2pkhScript,
+				p2shAddr.EncodeAddress():   p2pkhScript,
 			}), nil, nil)
 		if err == nil {
 			t.Fatal("Error expected")
@@ -2661,6 +2692,209 @@ func TestSignTxWitnessErrors(t *testing.T) {
 			t.Fatal("Error expected")
 		}
 		if err.Error() != "cannot nest P2SH or P2WSH inside P2WSH" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test uncompressed p2wpkh is forbidden", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+
+		pk1 := (*btcec.PublicKey)(&key.PublicKey).
+			SerializeUncompressed()
+
+		p2wpkhAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+			btcutil.Hash160(pk1), &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make p2wpkh address %v", err)
+		}
+
+		p2wpkhScript, err := PayToAddrScript(p2wpkhAddr)
+		if err != nil {
+			t.Fatalf("failed to make p2wpkh script %v", err)
+		}
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, p2wpkhScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{
+				p2wpkhAddr.EncodeAddress(): {key, false},
+			}), mkGetScript(map[string][]byte{}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "cannot use uncompressed keys with segwit" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test uncompressed p2wsh p2pkh is forbidden", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+
+		pk1 := (*btcec.PublicKey)(&key.PublicKey).
+			SerializeUncompressed()
+
+		p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
+			btcutil.Hash160(pk1), &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make uncompressed p2pkh address %v", err)
+		}
+
+		witnessScript, err := PayToAddrScript(p2pkhAddr)
+		if err != nil {
+			t.Fatalf("failed to witness script %v", err)
+		}
+
+		p2wsh := sha256.Sum256(witnessScript)
+		scriptAddr, err := btcutil.NewAddressWitnessScriptHash(
+			p2wsh[:], &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make p2wsh address %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(scriptAddr)
+		if err != nil {
+			t.Fatalf("failed to make p2wsh script %v", err)
+		}
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{
+				p2pkhAddr.EncodeAddress(): {key, false},
+			}), mkGetScript(map[string][]byte{
+				scriptAddr.EncodeAddress(): witnessScript,
+			}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "cannot use uncompressed keys with segwit" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test uncompressed p2wsh p2pk is forbidden", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+
+		pk1 := (*btcec.PublicKey)(&key.PublicKey).
+			SerializeUncompressed()
+
+		p2pkAddr, err := btcutil.NewAddressPubKey(
+			pk1, &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make uncompressed p2pk address %v", err)
+		}
+
+		witnessScript, err := PayToAddrScript(p2pkAddr)
+		if err != nil {
+			t.Fatalf("failed to witness script %v", err)
+		}
+
+		p2wsh := sha256.Sum256(witnessScript)
+		scriptAddr, err := btcutil.NewAddressWitnessScriptHash(
+			p2wsh[:], &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make p2wsh address %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(scriptAddr)
+		if err != nil {
+			t.Fatalf("failed to make p2wsh script %v", err)
+		}
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{
+				p2pkAddr.EncodeAddress(): {key, false},
+			}), mkGetScript(map[string][]byte{
+				scriptAddr.EncodeAddress(): witnessScript,
+			}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "cannot use uncompressed keys with segwit" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test uncompressed p2wsh multisig is forbidden", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+
+		pk1 := (*btcec.PublicKey)(&key.PublicKey).
+			SerializeUncompressed()
+
+		addr1, err := btcutil.NewAddressPubKey(pk1, &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make address pubkey for multisig %v", err)
+		}
+
+		witnessScript, err := MultiSigScript([]*btcutil.AddressPubKey{addr1}, 1)
+		if err != nil {
+			t.Fatalf("failed to witness script %v", err)
+		}
+
+		p2wsh := sha256.Sum256(witnessScript)
+		scriptAddr, err := btcutil.NewAddressWitnessScriptHash(
+			p2wsh[:], &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make p2wsh address %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(scriptAddr)
+		if err != nil {
+			t.Fatalf("failed to make p2wsh script %v", err)
+		}
+
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			tx, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{
+				addr1.EncodeAddress(): {key, false},
+			}), mkGetScript(map[string][]byte{
+				scriptAddr.EncodeAddress(): witnessScript,
+			}), nil, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "cannot use uncompressed keys with segwit" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
+	t.Run("test scriptSigs are pushonly", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+
+		pk1 := (*btcec.PublicKey)(&key.PublicKey).
+			SerializeCompressed()
+
+		p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
+			btcutil.Hash160(pk1), &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make p2wpkh address %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(p2pkhAddr)
+		if err != nil {
+			t.Fatalf("failed to make p2wpkh script %v", err)
+		}
+
+		txCpy := *tx
+		prevScript := []byte{OP_RETURN}
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			&txCpy, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{
+				p2pkhAddr.EncodeAddress(): {key, true},
+			}), mkGetScript(map[string][]byte{}), prevScript, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "signature script is not push only" {
 			t.Fatalf("Unexpected error %v", err)
 		}
 	})

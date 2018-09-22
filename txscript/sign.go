@@ -162,7 +162,7 @@ func signP2pk(tx *wire.MsgTx, sigHashes *TxSigHashes, idx int,
 // legal to not be able to sign any of the outputs, no error is returned.
 func signMultiSig(tx *wire.MsgTx, sigHashes *TxSigHashes, idx int,
 	amt int64, subScript []byte, sigVersion int, hashType SigHashType,
-	addresses []btcutil.Address, nRequired int, kdb KeyDB) ([][]byte, bool) {
+	addresses []btcutil.Address, nRequired int, kdb KeyDB) ([][]byte, bool, error) {
 	// We start with a single zero length push (OP_FALSE) to work around the
 	// (now standard) but in the reference implementation that causes a spurious
 	// pop at the end of OP_CHECKMULTISIG.
@@ -177,7 +177,7 @@ func signMultiSig(tx *wire.MsgTx, sigHashes *TxSigHashes, idx int,
 		sig, err := makeSignature(tx, sigHashes, idx, amt, subScript, sigVersion,
 			hashType, key, compressed)
 		if err != nil {
-			continue
+			return nil, false, err
 		}
 
 		stack = append(stack, sig)
@@ -187,7 +187,7 @@ func signMultiSig(tx *wire.MsgTx, sigHashes *TxSigHashes, idx int,
 		}
 	}
 
-	return stack, signed == nRequired
+	return stack, signed == nRequired, nil
 }
 
 // sign supports returning the scripts for script-hash types, as well
@@ -243,8 +243,11 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes, 
 
 		return [][]byte{script}, class, addresses, nrequired, nil
 	case MultiSigTy:
-		stack, _ := signMultiSig(tx, sigHashes, idx, amt, subScript, sigVersion,
+		stack, _, err := signMultiSig(tx, sigHashes, idx, amt, subScript, sigVersion,
 			hashType, addresses, nrequired, kdb)
+		if err != nil {
+			return nil, class, nil, 0, err
+		}
 		return stack, class, addresses, nrequired, nil
 	case NullDataTy:
 		return nil, class, nil, 0,
@@ -292,9 +295,6 @@ func mergeScripts(tx *wire.MsgTx, sigHashes *TxSigHashes, sigVersion int, idx in
 func mergeMultiSig(tx *wire.MsgTx, sigHashes *TxSigHashes, sigVersion int, idx int,
 	amt int64, pkScript []byte, addresses []btcutil.Address,
 	nRequired int, stack [][]byte, prevStack [][]byte) ([][]byte, error) {
-	if len(stack) == 0 {
-		return prevStack, nil
-	}
 	// This is an internal only function and we already parsed this script
 	// as ok for multisig (this is how we got here), so if this fails then
 	// all assumptions are broken and who knows which way is up?
@@ -447,7 +447,7 @@ func SignTxWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSi
 	sigVersion := 0
 	var redeemScript []byte
 	var witnessScript []byte
-	prevStack, err := PushedData(previousScript)
+	prevStack, err := readPushOnlyData(previousScript)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -543,4 +543,24 @@ func SignTxWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSi
 	}
 
 	return scriptSig, witness, nil
+}
+
+func readPushOnlyData(s []byte) ([][]byte, error) {
+	sigPops, err := parseScript(s)
+	if err != nil {
+		return nil, err
+	}
+
+	// Push only sigScript makes little sense.
+	// Can't have a signature script that doesn't just push data.
+	if !isPushOnly(sigPops) {
+		return nil, scriptError(ErrNotPushOnly,
+			"signature script is not push only")
+	}
+
+	data := make([][]byte, len(sigPops))
+	for i, pop := range sigPops {
+		data[i] = pop.data
+	}
+	return data, nil
 }
