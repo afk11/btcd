@@ -1850,7 +1850,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 				break
 			}
 
-			pkScript, err := MultiSigScript(
+			witnessScript, err := MultiSigScript(
 				[]*btcutil.AddressPubKey{address1, address2},
 				2)
 			if err != nil {
@@ -1858,29 +1858,27 @@ func TestSignTxOutputWitness(t *testing.T) {
 					"for %s: %v", msg, err)
 			}
 
-			wpProg := sha256.Sum256(pkScript)
-			scriptAddr, err := btcutil.NewAddressWitnessScriptHash(wpProg[:],
-				&chaincfg.TestNet3Params)
+			p2wsh := sha256.Sum256(witnessScript)
+			scriptAddr, err := btcutil.NewAddressWitnessScriptHash(p2wsh[:], &chaincfg.TestNet3Params)
 			if err != nil {
-				t.Errorf("failed to make p2sh addr for %s: %v",
+				t.Errorf("failed to make P2SH address for %s: %v",
 					msg, err)
 				break
 			}
 
-			scriptPkScript, err := PayToAddrScript(scriptAddr)
+			pkScript, err := PayToAddrScript(scriptAddr)
 			if err != nil {
-				t.Errorf("failed to make script pkscript for "+
-					"%s: %v", msg, err)
-				break
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
 			}
 
 			if err := signAndCheckWitness(msg, tx, sigHashes, i, inputAmounts[i],
-				scriptPkScript, hashType,
+				pkScript, hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},
 					address2.EncodeAddress(): {key2, true},
 				}), mkGetScript(map[string][]byte{
-					scriptAddr.EncodeAddress(): pkScript,
+					scriptAddr.EncodeAddress(): witnessScript,
 				}), nil); err != nil {
 				t.Error(err)
 				break
@@ -1888,7 +1886,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 		}
 	}
 
-	// Two part multisig, sign with one key then the other.
+	// Two part P2WSH multisig, sign with one key then the other.
 	for _, hashType := range hashTypes {
 		for i := range tx.TxIn {
 			msg := fmt.Sprintf("%d:%d", hashType, i)
@@ -1927,7 +1925,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 				break
 			}
 
-			pkScript, err := MultiSigScript(
+			witnessScript, err := MultiSigScript(
 				[]*btcutil.AddressPubKey{address1, address2},
 				2)
 			if err != nil {
@@ -1935,16 +1933,16 @@ func TestSignTxOutputWitness(t *testing.T) {
 					"for %s: %v", msg, err)
 			}
 
-			wprog := sha256.Sum256(pkScript)
+			p2wsh := sha256.Sum256(witnessScript)
 			scriptAddr, err := btcutil.NewAddressWitnessScriptHash(
-				wprog[:], &chaincfg.TestNet3Params)
+				p2wsh[:], &chaincfg.TestNet3Params)
 			if err != nil {
 				t.Errorf("failed to make p2sh addr for %s: %v",
 					msg, err)
 				break
 			}
 
-			scriptPkScript, err := PayToAddrScript(scriptAddr)
+			pkScript, err := PayToAddrScript(scriptAddr)
 			if err != nil {
 				t.Errorf("failed to make script pkscript for "+
 					"%s: %v", msg, err)
@@ -1952,11 +1950,11 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 
 			sigScript, witness, err := SignTxWitness(&chaincfg.TestNet3Params,
-				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},
 				}), mkGetScript(map[string][]byte{
-					scriptAddr.EncodeAddress(): pkScript,
+					scriptAddr.EncodeAddress(): witnessScript,
 				}), nil, nil)
 			if err != nil {
 				t.Errorf("failed to sign output %s: %v", msg,
@@ -1966,18 +1964,18 @@ func TestSignTxOutputWitness(t *testing.T) {
 
 			// Only 1 out of 2 signed, this *should* fail.
 			if checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i], sigScript,
-				scriptPkScript, witness) == nil {
+				pkScript, witness) == nil {
 				t.Errorf("part signed script valid for %s", msg)
 				break
 			}
 
 			// Sign with the other key and merge
 			sigScript, witness, err = SignTxWitness(&chaincfg.TestNet3Params,
-				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address2.EncodeAddress(): {key2, true},
 				}), mkGetScript(map[string][]byte{
-					scriptAddr.EncodeAddress(): pkScript,
+					scriptAddr.EncodeAddress(): witnessScript,
 				}), sigScript, witness)
 			if err != nil {
 				t.Errorf("failed to sign output %s: %v", msg, err)
@@ -1985,7 +1983,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 
 			err = checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i], sigScript,
-				scriptPkScript, witness)
+				pkScript, witness)
 			if err != nil {
 				t.Errorf("fully signed script invalid for "+
 					"%s: %v", msg, err)
@@ -1994,7 +1992,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 		}
 	}
 
-	// Two part multisig, sign with one key then both, check key dedup
+	// Two part P2WSH multisig, sign with one key then both, check key dedup
 	// correctly.
 	for _, hashType := range hashTypes {
 		for i := range tx.TxIn {
@@ -2034,7 +2032,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 				break
 			}
 
-			pkScript, err := MultiSigScript(
+			witnessScript, err := MultiSigScript(
 				[]*btcutil.AddressPubKey{address1, address2},
 				2)
 			if err != nil {
@@ -2042,16 +2040,16 @@ func TestSignTxOutputWitness(t *testing.T) {
 					"for %s: %v", msg, err)
 			}
 
-			wprog := sha256.Sum256(pkScript)
+			p2wsh := sha256.Sum256(witnessScript)
 			scriptAddr, err := btcutil.NewAddressWitnessScriptHash(
-				wprog[:], &chaincfg.TestNet3Params)
+				p2wsh[:], &chaincfg.TestNet3Params)
 			if err != nil {
 				t.Errorf("failed to make p2sh addr for %s: %v",
 					msg, err)
 				break
 			}
 
-			scriptPkScript, err := PayToAddrScript(scriptAddr)
+			pkScript, err := PayToAddrScript(scriptAddr)
 			if err != nil {
 				t.Errorf("failed to make script pkscript for "+
 					"%s: %v", msg, err)
@@ -2059,11 +2057,11 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 
 			sigScript, witness, err := SignTxWitness(&chaincfg.TestNet3Params,
-				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},
 				}), mkGetScript(map[string][]byte{
-					scriptAddr.EncodeAddress(): pkScript,
+					scriptAddr.EncodeAddress(): witnessScript,
 				}), nil, nil)
 			if err != nil {
 				t.Errorf("failed to sign output %s: %v", msg,
@@ -2073,19 +2071,19 @@ func TestSignTxOutputWitness(t *testing.T) {
 
 			// Only 1 out of 2 signed, this *should* fail.
 			if checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i],
-				sigScript, scriptPkScript, witness) == nil {
+				sigScript, pkScript, witness) == nil {
 				t.Errorf("part signed script valid for %s", msg)
 				break
 			}
 
 			// Sign with the other key and merge
 			sigScript, witness, err = SignTxWitness(&chaincfg.TestNet3Params,
-				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},
 					address2.EncodeAddress(): {key2, true},
 				}), mkGetScript(map[string][]byte{
-					scriptAddr.EncodeAddress(): pkScript,
+					scriptAddr.EncodeAddress(): witnessScript,
 				}), sigScript, witness)
 			if err != nil {
 				t.Errorf("failed to sign output %s: %v", msg, err)
@@ -2094,7 +2092,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 
 			// Now we should pass.
 			err = checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i],
-				sigScript, scriptPkScript, witness)
+				sigScript, pkScript, witness)
 			if err != nil {
 				t.Errorf("fully signed script invalid for "+
 					"%s: %v", msg, err)
@@ -2102,6 +2100,334 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 		}
 	}
+
+	// Basic P2SH-P2WSH Multisig
+	for _, hashType := range hashTypes {
+		for i := range tx.TxIn {
+			msg := fmt.Sprintf("%d:%d", hashType, i)
+
+			key1, err := btcec.NewPrivateKey(btcec.S256())
+			if err != nil {
+				t.Errorf("failed to make privKey for %s: %v",
+					msg, err)
+				break
+			}
+
+			pk1 := (*btcec.PublicKey)(&key1.PublicKey).
+				SerializeCompressed()
+			address1, err := btcutil.NewAddressPubKey(pk1,
+				&chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make address for %s: %v",
+					msg, err)
+				break
+			}
+
+			key2, err := btcec.NewPrivateKey(btcec.S256())
+			if err != nil {
+				t.Errorf("failed to make privKey 2 for %s: %v",
+					msg, err)
+				break
+			}
+
+			pk2 := (*btcec.PublicKey)(&key2.PublicKey).
+				SerializeCompressed()
+			address2, err := btcutil.NewAddressPubKey(pk2,
+				&chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make address 2 for %s: %v",
+					msg, err)
+				break
+			}
+
+			witnessScript, err := MultiSigScript(
+				[]*btcutil.AddressPubKey{address1, address2},
+				2)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			p2wsh := sha256.Sum256(witnessScript)
+			witAddr, err := btcutil.NewAddressWitnessScriptHash(p2wsh[:], &chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make P2WSH address for %s: %v",
+					msg, err)
+				break
+			}
+
+			redeemScript, err := PayToAddrScript(witAddr)
+			if err != nil {
+				t.Errorf("failed to make P2SH address for %s: %v",
+					msg, err)
+				break
+			}
+			p2shAddr, err := btcutil.NewAddressScriptHash(redeemScript, &chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			pkScript, err := PayToAddrScript(p2shAddr)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			if err := signAndCheckWitness(msg, tx, sigHashes, i, inputAmounts[i],
+				pkScript, hashType,
+				mkGetKey(map[string]addressToKey{
+					address1.EncodeAddress(): {key1, true},
+					address2.EncodeAddress(): {key2, true},
+				}), mkGetScript(map[string][]byte{
+					p2shAddr.EncodeAddress(): redeemScript,
+					witAddr.EncodeAddress():  witnessScript,
+				}), nil); err != nil {
+				t.Error(err)
+				break
+			}
+		}
+	}
+
+	// Two part P2SH-P2WSH multisig, sign with one key then the other.
+	for _, hashType := range hashTypes {
+		for i := range tx.TxIn {
+			msg := fmt.Sprintf("%d:%d", hashType, i)
+
+			key1, err := btcec.NewPrivateKey(btcec.S256())
+			if err != nil {
+				t.Errorf("failed to make privKey for %s: %v",
+					msg, err)
+				break
+			}
+
+			pk1 := (*btcec.PublicKey)(&key1.PublicKey).
+				SerializeCompressed()
+			address1, err := btcutil.NewAddressPubKey(pk1,
+				&chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make address for %s: %v",
+					msg, err)
+				break
+			}
+
+			key2, err := btcec.NewPrivateKey(btcec.S256())
+			if err != nil {
+				t.Errorf("failed to make privKey 2 for %s: %v",
+					msg, err)
+				break
+			}
+
+			pk2 := (*btcec.PublicKey)(&key2.PublicKey).
+				SerializeCompressed()
+			address2, err := btcutil.NewAddressPubKey(pk2,
+				&chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make address 2 for %s: %v",
+					msg, err)
+				break
+			}
+
+			witnessScript, err := MultiSigScript(
+				[]*btcutil.AddressPubKey{address1, address2},
+				2)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			p2wsh := sha256.Sum256(witnessScript)
+			witAddr, err := btcutil.NewAddressWitnessScriptHash(p2wsh[:], &chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make P2SH address for %s: %v",
+					msg, err)
+				break
+			}
+
+			redeemScript, err := PayToAddrScript(witAddr)
+			if err != nil {
+				t.Errorf("failed to make P2SH address for %s: %v",
+					msg, err)
+				break
+			}
+			scriptAddr, err := btcutil.NewAddressScriptHash(redeemScript, &chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			pkScript, err := PayToAddrScript(scriptAddr)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			sigScript, witness, err := SignTxWitness(&chaincfg.TestNet3Params,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
+				mkGetKey(map[string]addressToKey{
+					address1.EncodeAddress(): {key1, true},
+				}), mkGetScript(map[string][]byte{
+					scriptAddr.EncodeAddress(): redeemScript,
+					witAddr.EncodeAddress():    witnessScript,
+				}), nil, nil)
+			if err != nil {
+				t.Errorf("failed to sign output %s: %v", msg,
+					err)
+				break
+			}
+
+			// Only 1 out of 2 signed, this *should* fail.
+			if checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i], sigScript,
+				pkScript, witness) == nil {
+				t.Errorf("part signed script valid for %s", msg)
+				break
+			}
+
+			// Sign with the other key and merge
+			sigScript, witness, err = SignTxWitness(&chaincfg.TestNet3Params,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
+				mkGetKey(map[string]addressToKey{
+					address2.EncodeAddress(): {key2, true},
+				}), mkGetScript(map[string][]byte{
+					scriptAddr.EncodeAddress(): redeemScript,
+					witAddr.EncodeAddress():    witnessScript,
+				}), sigScript, witness)
+			if err != nil {
+				t.Errorf("failed to sign output %s: %v", msg, err)
+				break
+			}
+
+			err = checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i], sigScript,
+				pkScript, witness)
+			if err != nil {
+				t.Errorf("fully signed script invalid for "+
+					"%s: %v", msg, err)
+				break
+			}
+		}
+	}
+
+	// Two part P2SH-P2WSH multisig, sign with one key then both, check key dedup
+	// correctly.
+	for _, hashType := range hashTypes {
+		for i := range tx.TxIn {
+			msg := fmt.Sprintf("%d:%d", hashType, i)
+
+			key1, err := btcec.NewPrivateKey(btcec.S256())
+			if err != nil {
+				t.Errorf("failed to make privKey for %s: %v",
+					msg, err)
+				break
+			}
+
+			pk1 := (*btcec.PublicKey)(&key1.PublicKey).
+				SerializeCompressed()
+			address1, err := btcutil.NewAddressPubKey(pk1,
+				&chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make address for %s: %v",
+					msg, err)
+				break
+			}
+
+			key2, err := btcec.NewPrivateKey(btcec.S256())
+			if err != nil {
+				t.Errorf("failed to make privKey 2 for %s: %v",
+					msg, err)
+				break
+			}
+
+			pk2 := (*btcec.PublicKey)(&key2.PublicKey).
+				SerializeCompressed()
+			address2, err := btcutil.NewAddressPubKey(pk2,
+				&chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make address 2 for %s: %v",
+					msg, err)
+				break
+			}
+
+			witnessScript, err := MultiSigScript(
+				[]*btcutil.AddressPubKey{address1, address2},
+				2)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			p2wsh := sha256.Sum256(witnessScript)
+			witAddr, err := btcutil.NewAddressWitnessScriptHash(p2wsh[:], &chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make P2SH address for %s: %v",
+					msg, err)
+				break
+			}
+
+			redeemScript, err := PayToAddrScript(witAddr)
+			if err != nil {
+				t.Errorf("failed to make P2SH address for %s: %v",
+					msg, err)
+				break
+			}
+			p2shAddr, err := btcutil.NewAddressScriptHash(redeemScript, &chaincfg.TestNet3Params)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			pkScript, err := PayToAddrScript(p2shAddr)
+			if err != nil {
+				t.Errorf("failed to make pkscript "+
+					"for %s: %v", msg, err)
+			}
+
+			sigScript, witness, err := SignTxWitness(&chaincfg.TestNet3Params,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
+				mkGetKey(map[string]addressToKey{
+					address1.EncodeAddress(): {key1, true},
+				}), mkGetScript(map[string][]byte{
+					p2shAddr.EncodeAddress(): redeemScript,
+					witAddr.EncodeAddress():  witnessScript,
+				}), nil, nil)
+			if err != nil {
+				t.Errorf("failed to sign output %s: %v", msg,
+					err)
+				break
+			}
+
+			// Only 1 out of 2 signed, this *should* fail.
+			if checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i],
+				sigScript, pkScript, witness) == nil {
+				t.Errorf("part signed script valid for %s", msg)
+				break
+			}
+
+			// Sign with the other key and merge
+			sigScript, witness, err = SignTxWitness(&chaincfg.TestNet3Params,
+				tx, sigHashes, i, pkScript, inputAmounts[i], hashType,
+				mkGetKey(map[string]addressToKey{
+					address1.EncodeAddress(): {key1, true},
+					address2.EncodeAddress(): {key2, true},
+				}), mkGetScript(map[string][]byte{
+					p2shAddr.EncodeAddress(): redeemScript,
+					witAddr.EncodeAddress():  witnessScript,
+				}), sigScript, witness)
+			if err != nil {
+				t.Errorf("failed to sign output %s: %v", msg, err)
+				break
+			}
+
+			// Now we should pass.
+			err = checkScriptsAndWitness(msg, tx, sigHashes, i, inputAmounts[i],
+				sigScript, pkScript, witness)
+			if err != nil {
+				t.Errorf("fully signed script invalid for "+
+					"%s: %v", msg, err)
+				break
+			}
+		}
+	}
+
 }
 
 type tstInput struct {
