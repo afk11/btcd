@@ -109,7 +109,7 @@ func signAndCheckWitness(msg string, tx *wire.MsgTx, sigHashes *TxSigHashes, idx
 	inputAmt int64, pkScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
 	previousScript []byte) error {
 
-	sigScript, wit, err := SignTxOutputWitness(&chaincfg.TestNet3Params, tx, sigHashes, idx,
+	sigScript, wit, err := SignTxWitness(&chaincfg.TestNet3Params, tx, sigHashes, idx,
 		pkScript, inputAmt, hashType, kdb, sdb, previousScript, nil)
 	if err != nil {
 		return fmt.Errorf("failed to sign output %s: %v", msg, err)
@@ -1951,7 +1951,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 				break
 			}
 
-			sigScript, witness, err := SignTxOutputWitness(&chaincfg.TestNet3Params,
+			sigScript, witness, err := SignTxWitness(&chaincfg.TestNet3Params,
 				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},
@@ -1972,7 +1972,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 
 			// Sign with the other key and merge
-			sigScript, witness, err = SignTxOutputWitness(&chaincfg.TestNet3Params,
+			sigScript, witness, err = SignTxWitness(&chaincfg.TestNet3Params,
 				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address2.EncodeAddress(): {key2, true},
@@ -2058,7 +2058,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 				break
 			}
 
-			sigScript, witness, err := SignTxOutputWitness(&chaincfg.TestNet3Params,
+			sigScript, witness, err := SignTxWitness(&chaincfg.TestNet3Params,
 				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},
@@ -2079,7 +2079,7 @@ func TestSignTxOutputWitness(t *testing.T) {
 			}
 
 			// Sign with the other key and merge
-			sigScript, witness, err = SignTxOutputWitness(&chaincfg.TestNet3Params,
+			sigScript, witness, err = SignTxWitness(&chaincfg.TestNet3Params,
 				tx, sigHashes, i, scriptPkScript, inputAmounts[i], hashType,
 				mkGetKey(map[string]addressToKey{
 					address1.EncodeAddress(): {key1, true},

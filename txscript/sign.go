@@ -417,19 +417,19 @@ func (sc ScriptClosure) GetScript(address btcutil.Address) ([]byte, error) {
 func SignTxOutput(chainParams *chaincfg.Params, tx *wire.MsgTx, idx int,
 	pkScript []byte, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
 	previousScript []byte) ([]byte, error) {
-	script, _, err := SignTxOutputWitness(chainParams, tx, nil, idx, pkScript, 0,
+	script, _, err := SignTxWitness(chainParams, tx, nil, idx, pkScript, 0,
 		hashType, kdb, sdb, previousScript, nil)
 	return script, err
 }
 
-// SignTxOutputWitness signs output idx of the given tx to resolve the script
+// SignTxWitness signs output idx of the given tx to resolve the script
 // given in pkScript with a signature type of hashType. Any keys required will
 // be looked up by calling getKey() with the string of the given address.
 // Any pay-to-script-hash signatures will be similarly looked up by calling
 // getScript. If previousScript is provided then the results in previousScript
 // will be merged in a type-dependent manner with the newly generated.
 // signature script.
-func SignTxOutputWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes,
+func SignTxWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes,
 	idx int, pkScript []byte, amt int64, hashType SigHashType, kdb KeyDB, sdb ScriptDB,
 	previousScript []byte, previousWitness wire.TxWitness) ([]byte, wire.TxWitness, error) {
 	sigVersion := 0
