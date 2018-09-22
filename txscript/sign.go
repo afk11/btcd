@@ -210,7 +210,21 @@ func sign(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes *TxSigHashes, 
 		}
 
 		return stack, class, addresses, nrequired, nil
-	case ScriptHashTy:
+	case WitnessV0PubKeyHashTy:
+		// look up key for address
+		key, compressed, err := kdb.GetKey(addresses[0])
+		if err != nil {
+			return nil, class, nil, 0, err
+		}
+
+		stack, err := signP2pkh(tx, sigHashes, idx, subScript, amt, hashType,
+			sigVersion, key, compressed)
+		if err != nil {
+			return nil, class, nil, 0, err
+		}
+
+		return stack, class, addresses, nrequired, nil
+	case ScriptHashTy, WitnessV0ScriptHashTy:
 		script, err := sdb.GetScript(addresses[0])
 		if err != nil {
 			return nil, class, nil, 0, err
@@ -425,6 +439,7 @@ func SignTxOutputWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes
 	if err != nil {
 		return nil, nil, err
 	}
+
 	stack, class, addresses, nrequired, err := sign(chainParams, tx, sigHashes,
 		idx, pkScript, 0, sigVersion, hashType, kdb, sdb)
 	if err != nil {
@@ -472,16 +487,14 @@ func SignTxOutputWitness(chainParams *chaincfg.Params, tx *wire.MsgTx, sigHashes
 		}
 	} else if class == WitnessV0PubKeyHashTy {
 		sigVersion = 1
-		p2wpkh, err := btcutil.NewAddressPubKeyHash(pkScript[2:], chainParams)
+		// look up key for address
+		key, compressed, err := kdb.GetKey(addresses[0])
 		if err != nil {
 			return nil, nil, err
 		}
-		script, err := PayToAddrScript(p2wpkh)
-		if err != nil {
-			return nil, nil, err
-		}
-		stack, class, addresses, nrequired, err = sign(chainParams, tx, sigHashes,
-			idx, script, amt, sigVersion, hashType, kdb, sdb)
+
+		stack, err = signP2pkh(tx, sigHashes, idx, pkScript, amt, hashType,
+			sigVersion, key, compressed)
 		if err != nil {
 			return nil, nil, err
 		}
