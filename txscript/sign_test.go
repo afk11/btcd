@@ -3002,6 +3002,40 @@ func TestSignTxWitnessErrors(t *testing.T) {
 			t.Fatalf("Unexpected error %v", err)
 		}
 	})
+	t.Run("test scriptSigs are valid scripts", func(t *testing.T) {
+		key, err := btcec.NewPrivateKey(btcec.S256())
+		if err != nil {
+			t.Fatalf("failed to make privKey: %v", err)
+		}
+
+		pk1 := (*btcec.PublicKey)(&key.PublicKey).
+			SerializeCompressed()
+
+		p2pkhAddr, err := btcutil.NewAddressPubKeyHash(
+			btcutil.Hash160(pk1), &chaincfg.TestNet3Params)
+		if err != nil {
+			t.Fatalf("failed to make p2wpkh address %v", err)
+		}
+
+		pkScript, err := PayToAddrScript(p2pkhAddr)
+		if err != nil {
+			t.Fatalf("failed to make p2wpkh script %v", err)
+		}
+
+		txCpy := *tx
+		prevScript := []byte{0x20}
+		_, _, err = SignTxWitness(&chaincfg.TestNet3Params,
+			&txCpy, sigHashes, 0, pkScript, inputAmount, SigHashAll,
+			mkGetKey(map[string]addressToKey{
+				p2pkhAddr.EncodeAddress(): {key, true},
+			}), mkGetScript(map[string][]byte{}), prevScript, nil)
+		if err == nil {
+			t.Fatal("Error expected")
+		}
+		if err.Error() != "opcode OP_DATA_32 requires 33 bytes, but script only has 1 remaining" {
+			t.Fatalf("Unexpected error %v", err)
+		}
+	})
 }
 
 type tstInput struct {
